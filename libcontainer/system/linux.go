@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package system
@@ -27,7 +28,8 @@ func (p ParentDeathSignal) Restore() error {
 func (p ParentDeathSignal) Set() error {
 	return SetParentDeathSignal(uintptr(p))
 }
-
+// looks for the command/executable in the path
+// if found, call the execve syscall that will run the executable
 func Execv(cmd string, args []string, env []string) error {
 	name, err := exec.LookPath(cmd)
 	if err != nil {
