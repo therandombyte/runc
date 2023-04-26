@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package libcontainer
@@ -97,6 +98,10 @@ func TmpfsRoot(l *LinuxFactory) error {
 
 // New returns a linux based container factory based in the root directory and
 // configures the factory with the provided option funcs.
+// 1) create the root/base directory structure
+// 2) create linuxfactory object with init command and arguments
+// 3) gets cgroup Manager object (which uses default cgroups filesystem to create/manage cgroups)
+// 4) 
 func New(root string, options ...func(*LinuxFactory) error) (Factory, error) {
 	if root != "" {
 		if err := os.MkdirAll(root, 0700); err != nil {
@@ -141,6 +146,8 @@ type LinuxFactory struct {
 	NewCgroupsManager func(config *configs.Cgroup, paths map[string]string) cgroups.Manager
 }
 
+// returns a container oject
+// creates container root folder with root path passed in config and the id/name
 func (l *LinuxFactory) Create(id string, config *configs.Config) (Container, error) {
 	if l.Root == "" {
 		return nil, newGenericError(fmt.Errorf("invalid root"), ConfigInvalid)

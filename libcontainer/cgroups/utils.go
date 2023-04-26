@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package cgroups
@@ -18,6 +19,7 @@ import (
 )
 
 // https://www.kernel.org/doc/Documentation/cgroups/cgroups.txt
+
 func FindCgroupMountpoint(subsystem string) (string, error) {
 	f, err := os.Open("/proc/self/mountinfo")
 	if err != nil {
@@ -262,3 +264,43 @@ func GetHugePageSize() ([]string, error) {
 
 	return pageSizes, nil
 }
+
+/*
+Control Groups provide a mechanism for partitioning a task for subsystem (resource controller like virtualization subsystem)
+A *cgroup* associates a set of tasks with a set of parameters for one or more subsystems.
+A *hierarchy* is a set of cgroups arranged in a tree
+the only use for cgroups is for simple job tracking by other subsytems for accounting/limiting the resources (cpu/memory)
+
+No new system calls are added for cgroups - all support for querying and modifying cgroups is via this cgroup file system.
+Each cgroup is represented by a directory in the cgroup file system containing the following files describing that cgroup:
+
+ - tasks: list of tasks (by PID) attached to that cgroup
+ - cgroup.procs: list of thread group IDs in the cgroup.
+
+New cgroups are created using the mkdir system call or shell command.
+
+For example, the following sequence of commands will setup a cgroup named "Charlie", containing just CPUs 2 and 3, 
+and Memory Node 1, and then start a subshell 'sh' in that cgroup:
+
+  mount -t tmpfs cgroup_root /sys/fs/cgroup
+  mkdir /sys/fs/cgroup/cpuset
+  mount -t cgroup cpuset -ocpuset /sys/fs/cgroup/cpuset
+  cd /sys/fs/cgroup/cpuset
+  mkdir Charlie
+  cd Charlie
+  /bin/echo 2-3 > cpuset.cpus
+  /bin/echo 1 > cpuset.mems
+  /bin/echo $$ > tasks
+  sh
+  # The subshell 'sh' is now running in cgroup Charlie
+  # The next line should display '/Charlie'
+  cat /proc/self/cgroup
+
+  To mount a cgroup hierarchy with all available subsystems, type:
+# mount -t cgroup xxx /sys/fs/cgroup
+
+sysfs is a pseudo file system provided by the Linux kernel that exports information about various kernel subsystems, 
+hardware devices, and associated device drivers from the kernel's device model to user space through virtual files.
+
+
+*/

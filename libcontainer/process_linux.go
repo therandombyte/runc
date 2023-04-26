@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package libcontainer
@@ -62,7 +63,7 @@ func (p *setnsProcess) signal(sig os.Signal) error {
 
 func (p *setnsProcess) start() (err error) {
 	defer p.parentPipe.Close()
-	if err = p.execSetns(); err != nil {
+	if err = p.execSetns(); err != nil {  // forks a process 
 		return newSystemError(err)
 	}
 	if len(p.cgroupPaths) > 0 {
@@ -94,7 +95,7 @@ func (p *setnsProcess) start() (err error) {
 // before the go runtime boots, we wait on the process to die and receive the child's pid
 // over the provided pipe.
 func (p *setnsProcess) execSetns() error {
-	err := p.cmd.Start()
+	err := p.cmd.Start()   // runs the command
 	p.childPipe.Close()
 	if err != nil {
 		return newSystemError(err)

@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package libcontainer
@@ -61,6 +62,10 @@ func newCapWhitelist(caps []string) (*whitelist, error) {
 		}
 		l = append(l, v)
 	}
+
+	// current calling process needs to be "whitelisted"
+	// get the process id of the caller, and add it to the whitelist pid
+	// whitelist is a struct of capabilities and pids
 	pid, err := capability.NewPid(os.Getpid())
 	if err != nil {
 		return nil, err
@@ -77,6 +82,7 @@ type whitelist struct {
 }
 
 // dropBoundingSet drops the capability bounding set to those specified in the whitelist.
+// The capability bounding set is a mechanism that can be used to limit the capabilities that are gained during execve(2)
 func (w *whitelist) dropBoundingSet() error {
 	w.pid.Clear(capability.BOUNDS)
 	w.pid.Set(capability.BOUNDS, w.keep...)

@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package apparmor
@@ -13,6 +14,10 @@ const (
 	DefaultProfilePath = "/etc/apparmor.d/docker"
 )
 
+// 1) Creates a apparmor profile for docker
+// 2) loads it into kernel using apparmor_parser
+
+
 func InstallDefaultProfile() error {
 	if !IsEnabled() {
 		return nil
@@ -22,7 +27,7 @@ func InstallDefaultProfile() error {
 	if err := os.MkdirAll(path.Dir(DefaultProfilePath), 0755); err != nil {
 		return err
 	}
-
+	// O_TRUNC: truncate regular writable file when opened.
 	f, err := os.OpenFile(DefaultProfilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
@@ -33,6 +38,7 @@ func InstallDefaultProfile() error {
 	}
 	f.Close()
 
+	// apparmor_parser: loads AppArmor profile into the kernel
 	cmd := exec.Command("/sbin/apparmor_parser", "-r", "-W", "docker")
 	// to use the parser directly we have to make sure we are in the correct
 	// dir with the profile

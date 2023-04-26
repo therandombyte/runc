@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package cgroups
@@ -7,6 +8,9 @@ import (
 
 	"github.com/opencontainers/runc/libcontainer/configs"
 )
+
+// 1) Manager interface defined for cgroup implementation
+// 2) Some NotFoundError Struct and IsNotFound function
 
 type Manager interface {
 	// Apply cgroup configuration to the process with the specified pid

@@ -1,3 +1,4 @@
+//go:build go1.4
 // +build go1.4
 
 package libcontainer
@@ -5,6 +6,8 @@ package libcontainer
 import "syscall"
 
 // Converts IDMap to SysProcIDMap array and adds it to SysProcAttr.
+// using sycall package's "SysProcAttr" struct
+// SysProcIDMap holds Container ID to Host ID mappings used for User Namespaces in Linux.
 func (c *linuxContainer) addUidGidMappings(sys *syscall.SysProcAttr) error {
 	if c.config.UidMappings != nil {
 		sys.UidMappings = make([]syscall.SysProcIDMap, len(c.config.UidMappings))

@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package libcontainer
@@ -120,10 +121,10 @@ func finalizeNamespace(config *initConfig) error {
 	if err := system.SetKeepCaps(); err != nil {
 		return err
 	}
-	if err := setupUser(config); err != nil {
+	if err := setupUser(config); err != nil {  // use syscall to set uid, gid and check if user/group in config exists
 		return err
 	}
-	if err := system.ClearKeepCaps(); err != nil {
+	if err := system.ClearKeepCaps(); err != nil {  // use syscall to set capabilities of calling process
 		return err
 	}
 	// drop all other capabilities
@@ -158,6 +159,10 @@ func joinExistingNamespaces(namespaces []configs.Namespace) error {
 }
 
 // setupUser changes the groups, gid, and uid for the user inside the container
+// syscall has setuid, setgid, setgroups, but before setting those:
+// 1) get passwd and group file from linux path
+// 2) comapare the user details from config if they exist in passwd and group file
+// helper functions are in user.go
 func setupUser(config *initConfig) error {
 	// Set up defaults.
 	defaultExecUser := user.ExecUser{

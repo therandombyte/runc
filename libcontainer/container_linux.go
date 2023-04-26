@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package libcontainer
@@ -14,14 +15,16 @@ import (
 	"syscall"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/golang/protobuf/proto"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/criurpc"
-	"github.com/golang/protobuf/proto"
 )
 
 const stdioFdCount = 3
 
+// Only one goroutine to access a variable at a time to avoid conflicts?
+// This concept is called mutual exclusion, and the conventional name for the data structure that provides it is mutex.
 type linuxContainer struct {
 	id            string
 	root          string
@@ -92,6 +95,8 @@ func (c *linuxContainer) Set(config configs.Config) error {
 	return c.cgroupManager.Set(c.config)
 }
 
+// 1) creates a socketpair for parent and child to talk, will return 2 fds
+// 2) create a parent and child file and attach the fds to it
 func (c *linuxContainer) Start(process *Process) error {
 	c.m.Lock()
 	defer c.m.Unlock()
@@ -100,7 +105,7 @@ func (c *linuxContainer) Start(process *Process) error {
 		return err
 	}
 	doInit := status == Destroyed
-	parent, err := c.newParentProcess(process, doInit)
+	parent, err := c.newParentProcess(process, doInit)  // get cmd, initiconfig and initprocess struct defined
 	if err != nil {
 		return newSystemError(err)
 	}
@@ -119,20 +124,21 @@ func (c *linuxContainer) Start(process *Process) error {
 }
 
 func (c *linuxContainer) newParentProcess(p *Process, doInit bool) (parentProcess, error) {
-	parentPipe, childPipe, err := newPipe()
+	parentPipe, childPipe, err := newPipe()  // A) a pipe for parent and child to talk
 	if err != nil {
 		return nil, newSystemError(err)
 	}
-	cmd, err := c.commandTemplate(p, childPipe)
+	cmd, err := c.commandTemplate(p, childPipe)  // B) setting cmd structure
 	if err != nil {
 		return nil, newSystemError(err)
 	}
 	if !doInit {
-		return c.newSetnsProcess(p, cmd, parentPipe, childPipe), nil
+		return c.newSetnsProcess(p, cmd, parentPipe, childPipe), nil  // C) setting initprocess and initconfig structure
 	}
-	return c.newInitProcess(p, cmd, parentPipe, childPipe)
+	return c.newInitProcess(p, cmd, parentPipe, childPipe)   // C) setting initprocess and initconfig structure
 }
 
+// set the cmd struct within exec package
 func (c *linuxContainer) commandTemplate(p *Process, childPipe *os.File) (*exec.Cmd, error) {
 	cmd := &exec.Cmd{
 		Path: c.initPath,
@@ -143,7 +149,7 @@ func (c *linuxContainer) commandTemplate(p *Process, childPipe *os.File) (*exec.
 	cmd.Stderr = p.Stderr
 	cmd.Dir = c.config.Rootfs
 	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmd.SysProcAttr = &syscall.SysProcAttr{}  // initializing SysProcAttr
 	}
 	cmd.ExtraFiles = append(p.ExtraFiles, childPipe)
 	cmd.Env = append(cmd.Env, fmt.Sprintf("_LIBCONTAINER_INITPIPE=%d", stdioFdCount+len(cmd.ExtraFiles)-1))
@@ -156,11 +162,16 @@ func (c *linuxContainer) commandTemplate(p *Process, childPipe *os.File) (*exec.
 	return cmd, nil
 }
 
+// CloneFlags parses the container's Namespaces options to set the correct
+// flags on clone, unshare. This functions returns flags only for new namespaces.
+// adds host id and container id in SysProcAddr
+// SysProcAddr is part of "cmd" struct
+// initProcess, initConfig and cmd have all the info required
 func (c *linuxContainer) newInitProcess(p *Process, cmd *exec.Cmd, parentPipe, childPipe *os.File) (*initProcess, error) {
 	t := "_LIBCONTAINER_INITTYPE=standard"
 	cloneFlags := c.config.Namespaces.CloneFlags()
 	if cloneFlags&syscall.CLONE_NEWUSER != 0 {
-		if err := c.addUidGidMappings(cmd.SysProcAttr); err != nil {
+		if err := c.addUidGidMappings(cmd.SysProcAttr); err != nil { // adding host id and container id in SysProcAddr
 			// user mappings are not supported
 			return nil, err
 		}
@@ -180,6 +191,7 @@ func (c *linuxContainer) newInitProcess(p *Process, cmd *exec.Cmd, parentPipe, c
 	}, nil
 }
 
+// get into existing namespaces
 func (c *linuxContainer) newSetnsProcess(p *Process, cmd *exec.Cmd, parentPipe, childPipe *os.File) *setnsProcess {
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("_LIBCONTAINER_INITPID=%d", c.initProcess.pid()),
@@ -211,8 +223,32 @@ func (c *linuxContainer) newInitConfig(process *Process) *initConfig {
 	}
 }
 
+/*
+socketpair creates an anonymous pair of sockets, usually unix/local sockets, 
+which are only useful for communication between a parent and child process or in other cases 
+where the processes that need to use them can inherit the file descriptors from a common ancestor.
+If you're going to do communication between unrelated (in the sense of parentage) processes, 
+you need to use socket, bind, and connect to create a listening socket in one process and create 
+a client socket to connect to it in the other process.
+
+socketpair creates two sockets which are already connected to each other. 
+A common use case is the communication between a parent and a child process: 
+the parent creates the socket pair, forks the child and then child and parent 
+can communicate through their end of the socket pair with each other.
+
+AF_LOCAL uses UNIX domain sockets which are local to the filesystem and can be used for internal communications. AF_INET is an IP socket
+SOCK_STREAM: Provides sequenced, reliable, two-way, connection-based byte streams.
+
+protocol family like IP generally has a few similar concepts of how data will be handled on a socket:
+sequenced, reliable, two-way, connection-based, byte-streams: SOCK_STREAM (what an IP person would call TCP) 
+and the sockets API will worry about figuring out that you want TCP OR, I WANT TCP
+SOCK_CLOEXEC: Set the close-on-exec (FD_CLOEXEC) flag on the new file descriptor.
+
+os.NewFile is a low level function that most people will never use directly. 
+It takes an already existing file descriptor (system representation of a file) and converts it to an *os.File (Go's representation).
+*/
 func newPipe() (parent *os.File, child *os.File, err error) {
-	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
+	fds, err := syscall.Socketpair(syscall.AF_LOCAL, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)  // returns two file descriptors
 	if err != nil {
 		return nil, nil, err
 	}

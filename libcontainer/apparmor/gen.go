@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 package apparmor
@@ -7,6 +8,9 @@ import (
 	"os"
 	"text/template"
 )
+
+// 1) Generate a base apparmor template and send it out to  any writerstream
+// 2) Add tunable variables and abstractions into the profile if required
 
 type data struct {
 	Name         string
@@ -47,7 +51,11 @@ profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
   deny /sys/kernel/security/** rwklx,
 }
 `
-
+// Package template implements data-driven templates for generating textual output.
+// Templates are executed by applying them to a data structure.
+// io.Writer: you can write directly into files or other streams, such as http connections
+//           Advantage: if you are passing a Writer interface, you can pass anything which implements Write
+//           that is not only a file but a http.ResponseWriter, for example, or stdout os.Stdout, without changing the struct methods.
 func generateProfile(out io.Writer) error {
 	compiled, err := template.New("apparmor_profile").Parse(baseTemplate)
 	if err != nil {
@@ -71,12 +79,30 @@ func generateProfile(out io.Writer) error {
 }
 
 // check if the tunables/global exist
+/*
+tunables: those provide variables that can be used in templates, 
+		for example if you want a custom dir considered as it would be a home directory 
+		you could modify /etc/apparmor.d/tunables/home which defines the base path rules use for home directories
+		
+		The tunables directory (/etc/apparmor.d/tunables) contains global variable definitions. 
+		When used in a profile, these variables expand to a value that can be changed without 
+		changing the entire profile. Add all the tunables definitions that should be available to 
+		every profile to /etc/apparmor.d/tunables/global.
+*/
 func tunablesExists() bool {
 	_, err := os.Stat("/etc/apparmor.d/tunables/global")
 	return err == nil
 }
 
 // check if abstractions/base exist
+/*
+Abstractions are includes that are grouped by common application tasks. 
+These tasks include access to authentication mechanisms, access to name service routines, 
+common graphics requirements, and system accounting. Files listed in these abstractions 
+are specific to the named task. Programs that require one of these files usually also 
+require other files listed in the abstraction file (depending on the local configuration 
+	and the specific requirements of the program). Find abstractions in /etc/apparmor.d/abstractions.
+*/
 func abstractionsExists() bool {
 	_, err := os.Stat("/etc/apparmor.d/abstractions/base")
 	return err == nil
